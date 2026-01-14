@@ -1,12 +1,12 @@
-Flask
-Flask-Login
-Flask-SQLAlchemy
-Flask-Migrate
-pyotp
-qrcode[pil]
+Flask==3.1.2
+Flask-Login==0.6.3
+Flask-SQLAlchemy==3.1.1
+Flask-Migrate==4.1.0
+pyotp==2.9.0
+qrcode[pil]==8.2
 
 # For unit test code coverage
-coverage
+coverage==7.13.1
 
 # For end to end tests
-selenium
+selenium==4.39.0
