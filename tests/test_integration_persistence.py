@@ -1,5 +1,5 @@
 from app.models import Property
-from base_test_class import BaseTestClass
+from .base_test_class import BaseTestClass
 
 
 class PropertyIntegrationTest(BaseTestClass):

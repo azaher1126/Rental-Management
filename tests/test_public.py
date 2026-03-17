@@ -1,4 +1,4 @@
-from base_test_class import BaseTestClass
+from .base_test_class import BaseTestClass
 
 
 class PublicTests(BaseTestClass):

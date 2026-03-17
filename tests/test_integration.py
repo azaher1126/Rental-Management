@@ -1,7 +1,7 @@
 import re
 from flask import Flask
 from pyotp import TOTP
-from tests.base_test_class import BaseTestClass
+from .base_test_class import BaseTestClass
 from app.models import Property
 from app.database import db
 from app.app import create_app

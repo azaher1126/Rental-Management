@@ -3,7 +3,7 @@ import re
 from pyotp import TOTP
 
 from app.database import db
-from base_test_class import BaseTestClass
+from .base_test_class import BaseTestClass
 
 
 class AccountTests(BaseTestClass):

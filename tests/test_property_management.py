@@ -1,6 +1,6 @@
 from app.database import db
 from app.models import Property
-from base_test_class import BaseTestClass
+from .base_test_class import BaseTestClass
 
 
 class PropertyTests(BaseTestClass):
