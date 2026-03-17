@@ -3,17 +3,16 @@ import threading
 import unittest
 from typing import Any
 from uuid import uuid4
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
+from contextlib import contextmanager
+from flask_login import login_user
+from flask import Response
+
+from playwright.sync_api import sync_playwright
 
 from app.app import create_app
 from app.database import db
 from app.enums.AccountType import AccountType
 from app.models import User
-
-WEB_SERVER_PORT = 8080
 
 
 class BaseTestClass(unittest.TestCase):
@@ -40,16 +39,18 @@ class BaseTestClass(unittest.TestCase):
 
         # Start the web app in a separate thread
         from werkzeug.serving import make_server
-        cls.server = make_server('localhost', WEB_SERVER_PORT, cls.app)
+        cls.server = make_server('localhost', 0, cls.app)
         cls.server_thread = threading.Thread(target=cls.server.serve_forever)
         cls.server_thread.start()
 
-        # Setting up selenium
-        cls.driver = webdriver.Chrome(options=webdriver.ChromeOptions())
+        # Setting up playwright
+        cls.playwright = sync_playwright().start()
+        cls.browser = cls.playwright.chromium.launch(headless=True)
 
     @classmethod
     def tearDownClass(cls) -> None:
-        cls.driver.quit()
+        cls.browser.close()
+        cls.playwright.stop()
 
         # Stop the web app
         cls.server.shutdown()
@@ -61,18 +62,26 @@ class BaseTestClass(unittest.TestCase):
             os.remove(db.db_path)
 
     def setUp(self) -> None:
-        # Reset driver state
-        self.driver.delete_all_cookies()
-        self.driver.get(f'http://localhost:{WEB_SERVER_PORT}')
+        self.context = self.browser.new_context(viewport={"width": 1920, "height": 1080})
+        self.context.set_default_timeout(10000)
+        self.page = self.context.new_page()
 
+        self.page.goto(f"http://localhost:{self.server.port}/")
+        
+        return super().setUp()
+    
+    def tearDown(self) -> None:
         with self.app.app_context():
             # Disable any 2FA that may have been setup in a test case
             self.test_user = db.session.get(User, self.test_user.id)
             self.test_user.is_2fa_auth_enabled = False
             db.session.commit()
+
         self.client = self.app.test_client()
         self.test_user_2fa_token = None
-        return super().setUp()
+
+        self.page.close()
+        self.context.close()
 
     def enableTestUser2fa(self) -> Any | None:
         if self.test_user_2fa_token:
@@ -86,43 +95,42 @@ class BaseTestClass(unittest.TestCase):
             return test_user.token_2fa
 
     def getFullWebPath(self, path: str) -> str:
-        return f'http://localhost:{WEB_SERVER_PORT}{path}'
+        return f'http://localhost:{self.server.port}{path}'
     
     def pageFlashesContain(self, expectedStr: str) -> bool:
-        flashesContainer = self.driver.find_element(By.ID, 'flashes')
+        flashesContainer = self.page.locator("#flashes")
         if not flashesContainer:
             return False
-        flashes = flashesContainer.find_elements(By.TAG_NAME, 'li')
-        for flash in flashes:
-            if expectedStr in flash.text:
+        flashes = flashesContainer.locator("li")
+        for flash in flashes.all():
+            if expectedStr in flash.inner_text():
                 return True
         return False
     
-    def loginTestUser(self):
-        login_full_path = self.getFullWebPath('/login')
-        original_url = self.driver.current_url
-        self.driver.get(login_full_path)
+    @contextmanager
+    def logged_in_context(self):
+        with self.app.test_request_context() as requestContext:
+            login_user(self.test_user)
 
-        wait = WebDriverWait(self.driver, 10).until(
-            EC.url_changes(original_url)
-        )
+            if not requestContext.session:
+                raise RuntimeError("The session attached to this request context is None. This should not happen.")
 
-        self.assertEqual(login_full_path, self.driver.current_url)
+            response = Response()
+            self.app.session_interface.save_session(self.app, requestContext.session, response)
 
-        login_button = WebDriverWait(self.driver, 10).until(
-            EC.element_to_be_clickable((By.ID, 'login-submit'))
-        )
+            for header in response.headers.get_all('Set-Cookie'):
+                if 'session' in header:  # Flask session cookie is named 'session'
+                    cookie_parts = header.split(';')[0].split('=')
+                    if len(cookie_parts) == 2:
+                        self.context.add_cookies(
+                            [
+                                {
+                                    "name": cookie_parts[0],
+                                    "value": cookie_parts[1],
+                                    "url": f"http://localhost:{self.server.port}/"
+                                }
+                            ]
+                        )
+            yield
 
-        email_input = self.driver.find_element(By.NAME, 'email')
-        email_input.send_keys(self.user_email)
-
-        password_input = self.driver.find_element(By.NAME, 'password')
-        password_input.send_keys(self.user_password)
-
-        login_button.click()
-
-        # Check that the user is logged in
-        nav_fullname = self.driver.find_element(By.ID, 'nav-user-fullname')
-        self.assertEqual(f'{self.user_first_name} {self.user_last_name}', nav_fullname.text)
-
-        self.assertTrue(self.pageFlashesContain("Logged in successfully!"))
+        self.context.clear_cookies()

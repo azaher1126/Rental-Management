@@ -9,4 +9,4 @@ qrcode[pil]==8.2
 coverage==7.13.1
 
 # For end to end tests
-selenium==4.39.0
+playwright==1.58.0
